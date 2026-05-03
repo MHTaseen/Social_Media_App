@@ -3,5 +3,5 @@ package com.example.socialmediaapp.repository
 import android.net.Uri
 
 interface StorageRepository {
-    suspend fun uploadImage(uri: Uri, path: String): Result<String>
+    suspend fun uploadMedia(uri: Uri, path: String): Result<String>
 }

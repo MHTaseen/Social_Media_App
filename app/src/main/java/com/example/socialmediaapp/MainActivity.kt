@@ -19,6 +19,8 @@ import com.example.socialmediaapp.ui.feed.CreatePostScreen
 import com.example.socialmediaapp.ui.feed.FeedScreen
 import com.example.socialmediaapp.ui.navigation.Screen
 import com.example.socialmediaapp.ui.profile.ProfileScreen
+import com.example.socialmediaapp.ui.profile.FriendRequestsScreen
+import com.example.socialmediaapp.ui.profile.NotificationsScreen
 import com.example.socialmediaapp.ui.search.SearchScreen
 import com.example.socialmediaapp.ui.messages.MessagesScreen
 import com.example.socialmediaapp.ui.messages.ChatScreen
@@ -64,6 +66,12 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(Screen.Messages.route) {
                             MessagesScreen(navController)
+                        }
+                        composable(Screen.Notifications.route) {
+                            NotificationsScreen(navController)
+                        }
+                        composable(Screen.FriendRequests.route) {
+                            FriendRequestsScreen(navController)
                         }
                         composable(
                             route = Screen.Chat.route,

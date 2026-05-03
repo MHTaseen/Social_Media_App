@@ -11,5 +11,6 @@ data class User(
     val following: List<String> = emptyList(),
     val friends: List<String> = emptyList(),
     val incomingRequests: List<String> = emptyList(),
-    val outgoingRequests: List<String> = emptyList()
+    val outgoingRequests: List<String> = emptyList(),
+    val reportedPostIds: List<String> = emptyList()
 )

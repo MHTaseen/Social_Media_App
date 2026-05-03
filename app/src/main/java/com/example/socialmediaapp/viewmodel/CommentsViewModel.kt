@@ -48,4 +48,10 @@ class CommentsViewModel @Inject constructor(
             postRepository.addComment(comment)
         }
     }
+
+    fun deleteComment(commentId: String, postId: String) {
+        viewModelScope.launch {
+            postRepository.deleteComment(commentId, postId)
+        }
+    }
 }

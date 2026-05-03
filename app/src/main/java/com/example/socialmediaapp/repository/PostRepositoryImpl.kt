@@ -1,6 +1,8 @@
 package com.example.socialmediaapp.repository
 
 import com.example.socialmediaapp.model.Comment
+import com.example.socialmediaapp.model.Notification
+import com.example.socialmediaapp.model.NotificationType
 import com.example.socialmediaapp.model.Post
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
@@ -13,11 +15,13 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 class PostRepositoryImpl @Inject constructor(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val notificationRepository: NotificationRepository,
+    private val userRepository: UserRepository
 ) : PostRepository {
     private val postsCollection = firestore.collection("posts")
 
-    private val mockPosts = MutableStateFlow(listOf(
+    private val initialMockPosts = listOf(
         Post(
             id = "1",
             userId = "user1",
@@ -36,11 +40,34 @@ class PostRepositoryImpl @Inject constructor(
             likes = emptyList(),
             commentCount = 5
         )
-    ))
+    )
+
+    private val mockPosts = MutableStateFlow(initialMockPosts)
 
     override suspend fun createPost(post: Post): Result<Unit> = try {
         val docRef = postsCollection.document()
-        postsCollection.document(docRef.id).set(post.copy(id = docRef.id)).await()
+        val postId = docRef.id
+        postsCollection.document(postId).set(post.copy(id = postId)).await()
+        
+        // Notify friends/followers about the new post
+        val authorResult = userRepository.getUser(post.userId)
+        val author = authorResult.getOrNull()
+        if (author != null) {
+            author.friends.forEach { friendId ->
+                notificationRepository.sendNotification(
+                    Notification(
+                        receiverId = friendId,
+                        senderId = post.userId,
+                        senderUsername = author.username,
+                        senderProfileImageUrl = author.profileImageUrl,
+                        type = NotificationType.NEW_POST,
+                        postId = postId,
+                        text = "posted a new update"
+                    )
+                )
+            }
+        }
+        
         Result.success(Unit)
     } catch (e: Exception) {
         val newPost = post.copy(id = "mock_${System.currentTimeMillis()}")
@@ -50,23 +77,21 @@ class PostRepositoryImpl @Inject constructor(
         Result.success(Unit)
     }
 
-    override fun getPostsFlow(): Flow<List<Post>> = callbackFlow {
-        val listener = postsCollection
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ ->
-                val posts = snapshot?.toObjects(Post::class.java) ?: emptyList()
-                if (posts.isNotEmpty()) {
+    override fun getPostsFlow(): Flow<List<Post>> {
+        val firestoreFlow = callbackFlow {
+            val listener = postsCollection
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, _ ->
+                    val posts = snapshot?.toObjects(Post::class.java) ?: emptyList()
                     trySend(posts)
                 }
-            }
-        
-        val job = launch {
-            mockPosts.collect { trySend(it) }
-        }
+            awaitClose { listener.remove() }
+        }.onStart { emit(emptyList()) }
 
-        awaitClose { 
-            listener.remove()
-            job.cancel()
+        return combine(firestoreFlow, mockPosts) { firestorePosts, localMockPosts ->
+            (firestorePosts + localMockPosts)
+                .distinctBy { it.id }
+                .sortedByDescending { it.timestamp }
         }
     }
 
@@ -86,6 +111,27 @@ class PostRepositoryImpl @Inject constructor(
 
     override suspend fun likePost(userId: String, postId: String): Result<Unit> = try {
         postsCollection.document(postId).update("likes", FieldValue.arrayUnion(userId)).await()
+        
+        // Send notification to post owner
+        val postSnapshot = postsCollection.document(postId).get().await()
+        val post = postSnapshot.toObject(Post::class.java)
+        if (post != null && post.userId != userId) {
+            val liker = userRepository.getUser(userId).getOrNull()
+            if (liker != null) {
+                notificationRepository.sendNotification(
+                    Notification(
+                        receiverId = post.userId,
+                        senderId = userId,
+                        senderUsername = liker.username,
+                        senderProfileImageUrl = liker.profileImageUrl,
+                        type = NotificationType.LIKE,
+                        postId = postId,
+                        text = "liked your post"
+                    )
+                )
+            }
+        }
+        
         Result.success(Unit)
     } catch (e: Exception) {
         mockPosts.update { currentList ->
@@ -118,12 +164,51 @@ class PostRepositoryImpl @Inject constructor(
             batch.set(commentRef, comment.copy(id = commentRef.id))
             batch.update(postsCollection.document(comment.postId), "commentCount", FieldValue.increment(1))
         }.await()
+
+        // Send notification to post owner
+        val postSnapshot = postsCollection.document(comment.postId).get().await()
+        val post = postSnapshot.toObject(Post::class.java)
+        if (post != null && post.userId != comment.userId) {
+            val commenter = userRepository.getUser(comment.userId).getOrNull()
+            if (commenter != null) {
+                notificationRepository.sendNotification(
+                    Notification(
+                        receiverId = post.userId,
+                        senderId = comment.userId,
+                        senderUsername = commenter.username,
+                        senderProfileImageUrl = commenter.profileImageUrl,
+                        type = NotificationType.COMMENT,
+                        postId = comment.postId,
+                        text = "commented: ${comment.text}"
+                    )
+                )
+            }
+        }
+
         Result.success(Unit)
     } catch (e: Exception) {
         mockPosts.update { currentList ->
             currentList.map { 
                 if (it.id == comment.postId) {
                     it.copy(commentCount = it.commentCount + 1)
+                } else it
+            }
+        }
+        Result.success(Unit)
+    }
+
+    override suspend fun deleteComment(commentId: String, postId: String): Result<Unit> = try {
+        firestore.runBatch { batch ->
+            val commentRef = postsCollection.document(postId).collection("comments").document(commentId)
+            batch.delete(commentRef)
+            batch.update(postsCollection.document(postId), "commentCount", FieldValue.increment(-1))
+        }.await()
+        Result.success(Unit)
+    } catch (e: Exception) {
+        mockPosts.update { currentList ->
+            currentList.map { 
+                if (it.id == postId) {
+                    it.copy(commentCount = (it.commentCount - 1).coerceAtLeast(0))
                 } else it
             }
         }

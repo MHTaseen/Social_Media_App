@@ -13,5 +13,6 @@ interface PostRepository {
     suspend fun unlikePost(userId: String, postId: String): Result<Unit>
     
     suspend fun addComment(comment: Comment): Result<Unit>
+    suspend fun deleteComment(commentId: String, postId: String): Result<Unit>
     fun getCommentsFlow(postId: String): Flow<List<Comment>>
 }

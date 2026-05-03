@@ -30,6 +30,20 @@ object AppModule {
     
     @Provides
     @Singleton
+    fun provideNotificationRepository(firestore: FirebaseFirestore): NotificationRepository = 
+        NotificationRepositoryImpl(firestore)
+
+    @Provides
+    @Singleton
+    fun provideUserRepository(
+        firestore: FirebaseFirestore,
+        notificationRepository: NotificationRepository,
+        @ApplicationContext context: Context
+    ): UserRepository = 
+        UserRepositoryImpl(firestore, notificationRepository, context)
+
+    @Provides
+    @Singleton
     fun provideAuthRepository(
         auth: FirebaseAuth, 
         firestore: FirebaseFirestore,
@@ -39,26 +53,29 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideUserRepository(
+    fun providePostRepository(
         firestore: FirebaseFirestore,
+        notificationRepository: NotificationRepository,
+        userRepository: UserRepository
+    ): PostRepository = 
+        PostRepositoryImpl(firestore, notificationRepository, userRepository)
+
+    @Provides
+    @Singleton
+    fun provideStorageRepository(
+        storage: FirebaseStorage,
         @ApplicationContext context: Context
-    ): UserRepository = 
-        UserRepositoryImpl(firestore, context)
+    ): StorageRepository = 
+        StorageRepositoryImpl(storage, context)
 
     @Provides
     @Singleton
-    fun providePostRepository(firestore: FirebaseFirestore): PostRepository = 
-        PostRepositoryImpl(firestore)
-
-    @Provides
-    @Singleton
-    fun provideStorageRepository(storage: FirebaseStorage): StorageRepository = 
-        StorageRepositoryImpl(storage)
-
-    @Provides
-    @Singleton
-    fun provideMessageRepository(firestore: FirebaseFirestore): MessageRepository = 
-        MessageRepositoryImpl(firestore)
+    fun provideMessageRepository(
+        firestore: FirebaseFirestore,
+        notificationRepository: NotificationRepository,
+        userRepository: UserRepository
+    ): MessageRepository = 
+        MessageRepositoryImpl(firestore, notificationRepository, userRepository)
 
     @Provides
     @Singleton

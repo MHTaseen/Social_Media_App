@@ -2,6 +2,9 @@ package com.example.socialmediaapp.repository
 
 import com.example.socialmediaapp.model.Chat
 import com.example.socialmediaapp.model.Message
+import com.example.socialmediaapp.model.Notification
+import com.example.socialmediaapp.model.NotificationType
+import com.example.socialmediaapp.model.User
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
@@ -11,7 +14,9 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 class MessageRepositoryImpl @Inject constructor(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val notificationRepository: NotificationRepository,
+    private val userRepository: UserRepository
 ) : MessageRepository {
     private val chatsCollection = firestore.collection("chats")
 
@@ -35,6 +40,9 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendMessage(message: Message): Result<Unit> = try {
+        val chatSnapshot = chatsCollection.document(message.chatId).get().await()
+        val chat = chatSnapshot.toObject(Chat::class.java)
+        
         firestore.runBatch { batch ->
             val chatRef = chatsCollection.document(message.chatId)
             val messageRef = chatRef.collection("messages").document()
@@ -42,6 +50,24 @@ class MessageRepositoryImpl @Inject constructor(
             batch.update(chatRef, "lastMessage", message.text)
             batch.update(chatRef, "lastMessageTimestamp", message.timestamp)
         }.await()
+
+        // Send notification to other participants
+        chat?.participantIds?.filter { it != message.senderId }?.forEach { receiverId ->
+            val sender = userRepository.getUser(message.senderId).getOrNull()
+            if (sender != null) {
+                notificationRepository.sendNotification(
+                    Notification(
+                        receiverId = receiverId,
+                        senderId = message.senderId,
+                        senderUsername = sender.username,
+                        senderProfileImageUrl = sender.profileImageUrl,
+                        type = NotificationType.MESSAGE,
+                        text = message.text
+                    )
+                )
+            }
+        }
+        
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
